@@ -11,16 +11,17 @@
 
 (defn- send-message-to-slack
   "Given a socket and an atom, send a text message to a Slack channel"
-  [socket msg-id-atom channel text]
-  (let [message-id @msg-id-atom]
-    (swap! msg-id-atom
-           (fn [current-id]
-             (inc current-id)))
-    (ws/send-msg socket
-                 (json/write-str {:id message-id
-                                  :type "message"
-                                  :channel channel
-                                  :text text}))))
+  [text socket msg-id-atom channel]
+  (if (not (nil? text))
+    (let [message-id @msg-id-atom]
+      (swap! msg-id-atom
+             (fn [current-id]
+               (inc current-id)))
+      (ws/send-msg socket
+                   (json/write-str {:id message-id
+                                    :type "message"
+                                    :channel channel
+                                    :text text})))))
 
 (defn- message-received
   "Callback function for websockets' client"
@@ -34,15 +35,18 @@
            (contains? message-kw :text))
         (let [text (lower-case (get-in message-kw [:text]))]
           (doseq [trigger-cb trigger-cb-vector]
-            (if ((nth trigger-cb 0) text)
-              (send-message-to-slack
-               @socket-promise
-               msg-id-atom
-               (get-in message-kw [:channel])
-               ((nth trigger-cb 1) text)))))))))
+            (send-message-to-slack
+             (trigger-cb text)
+             @socket-promise
+             msg-id-atom
+             (get-in message-kw [:channel]))))))))
 
 ;; API
 (defn start
+  "Takes a Slack API token and a vector of functions.
+  The functions take one argument (the message being posted
+  in the channel) and should return a reaction in the form
+  of a string, or nil if no reaction is to be returned."
   [api-token trigger-cb-vector]
   (let [socket-promise (promise)
         msg-id-atom (atom 0)]
